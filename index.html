@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>I Nostri Vini - Le Barrique Prato</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.9.359/pdf.min.js"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            font-family: Arial, sans-serif;
+        }
+        #pdf-viewer {
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+        }
+        #pdf-viewer canvas {
+            display: block;
+            margin: 0 auto;
+        }
+        #loading {
+            text-align: center;
+            padding: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div id="pdf-viewer">
+        <div id="loading">Caricamento del catalogo...</div>
+    </div>
+
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.9.359/pdf.worker.min.js';
+
+        // Updated URL with your Google Drive link
+        const url = 'https://drive.google.com/uc?export=download&id=1m9ZU1MAfOo0H6mSHPxOYAwW2Sc5ymbEk';
+
+        let pdfDoc = null,
+            pageNum = 1,
+            pageRendering = false,
+            pageNumPending = null,
+            scale = 1.5;
+
+        function renderPage(num) {
+            pageRendering = true;
+            pdfDoc.getPage(num).then(function(page) {
+                const viewport = page.getViewport({scale: scale});
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+
+                const renderContext = {
+                    canvasContext: ctx,
+                    viewport: viewport
+                };
+                const renderTask = page.render(renderContext);
+
+                renderTask.promise.then(function() {
+                    pageRendering = false;
+                    if (pageNumPending !== null) {
+                        renderPage(pageNumPending);
+                        pageNumPending = null;
+                    }
+                });
+
+                const viewer = document.getElementById('pdf-viewer');
+                if (num === 1) {
+                    viewer.innerHTML = '';
+                }
+                viewer.appendChild(canvas);
+            });
+        }
+
+        function queueRenderPage(num) {
+            if (pageRendering) {
+                pageNumPending = num;
+            } else {
+                renderPage(num);
+            }
+        }
+
+        pdfjsLib.getDocument(url).promise.then(function(pdfDoc_) {
+            pdfDoc = pdfDoc_;
+            const viewer = document.getElementById('pdf-viewer');
+            
+            for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+                queueRenderPage(pageNum);
+            }
+            
+            pdfDoc.getOutline().then(function(outline) {
+                if (outline) {
+                    // If there's an outline (bookmarks/table of contents), you can use it here
+                    console.log(outline);
+                }
+            });
+        });
+
+        document.getElementById('pdf-viewer').addEventListener('click', function(e) {
+            if (e.target.tagName === 'CANVAS') {
+                const clickX = e.clientX - e.target.offsetLeft;
+                const clickY = e.clientY - e.target.offsetTop;
+                const page = parseInt(e.target.dataset.pageNumber);
+                
+                pdfDoc.getPage(page).then(function(pdfPage) {
+                    const scale = e.target.height / pdfPage.getViewport({scale: 1}).height;
+                    pdfPage.getAnnotations().then(function(annotations) {
+                        for (let i = 0; i < annotations.length; i++) {
+                            if (annotations[i].subtype === 'Link') {
+                                const rect = annotations[i].rect;
+                                const [x1, y1, x2, y2] = rect;
+                                const annotLeft = x1 * scale;
+                                const annotTop = e.target.height - y2 * scale;
+                                const annotRight = x2 * scale;
+                                const annotBottom = e.target.height - y1 * scale;
+
+                                if (clickX >= annotLeft && clickX <= annotRight && 
+                                    clickY >= annotTop && clickY <= annotBottom) {
+                                    if (annotations[i].url) {
+                                        window.open(annotations[i].url, '_blank');
+                                    } else if (annotations[i].dest) {
+                                        const destinationPage = annotations[i].dest[0];
+                                        pdfDoc.getPageIndex(destinationPage).then(function(pageIndex) {
+                                            queueRenderPage(pageIndex + 1);
+                                        });
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                    });
+                });
+            }
+        });
+    </script>
+</body>
+</html>
